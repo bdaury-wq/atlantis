@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ATLANTIS · New York</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+#bg{position:fixed;inset:0}
+.vs{position:absolute;inset:0;opacity:0;transition:opacity 1.4s ease}
+.vs.on{opacity:1}
+.vs video{width:100%;height:100%;object-fit:cover}
+/* Load screen */
+#load{position:fixed;inset:0;z-index:10;background:#000;display:flex;
+  align-items:center;justify-content:center;cursor:pointer;transition:opacity 1.2s}
+#load.out{opacity:0;pointer-events:none}
+#dot{width:8px;height:8px;border-radius:50%;background:rgba(127,236,224,.6);
+  animation:pulse 2.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:.5}50%{transform:scale(1.6);opacity:1}}
+</style>
+</head>
+<body>
+
+<div id="bg">
+  <div class="vs on" id="va"><video id="vva" playsinline muted loop preload="auto"></video></div>
+  <div class="vs"    id="vb"><video id="vvb" playsinline muted loop preload="auto"></video></div>
+</div>
+
+<div id="load"><div id="dot"></div></div>
+
+<script>
+const VIDS = [
+  '01-nyc-flooding-2K.mp4',
+  '02-flooded-shore-2K.mp4',
+  '03-times-square-2K.mp4',
+  '04-subway-2K.mp4',
+  '05-central-park-2K.mp4',
+  '03-deep-2K.mp4'
+];
+const DUR = 11000; /* ms per video before crossfade */
+
+const va=document.getElementById('va'), vb=document.getElementById('vb');
+const vva=document.getElementById('vva'), vvb=document.getElementById('vvb');
+let slot='a', idx=0, timer=null;
+
+function crossfade(src){
+  const prev = slot==='a' ? va : vb;
+  const next = slot==='a' ? vb : va;
+  const nv   = slot==='a' ? vvb : vva;
+  let done=false;
+  function doSwitch(){
+    if(done)return; done=true;
+    nv.play().catch(()=>{});
+    next.classList.add('on');
+    prev.classList.remove('on');
+    slot = slot==='a' ? 'b' : 'a';
+  }
+  nv.src=src; nv.muted=true; nv.load();
+  nv.addEventListener('canplay', doSwitch, {once:true});
+  setTimeout(doSwitch, 700);
+}
+
+function next(){
+  idx = (idx+1) % VIDS.length;
+  crossfade(VIDS[idx]);
+  clearTimeout(timer);
+  timer = setTimeout(next, DUR);
+}
+
+/* Preload all */
+VIDS.forEach(src=>{const v=document.createElement('video');v.preload='auto';v.muted=true;v.src=src;v.load();});
+
+/* Audio — dreamy E-minor pad + melody */
+let A=null;
+function mkI(d,dc){const r=A.sampleRate,l=r*d,b=A.createBuffer(2,l,r);for(let c=0;c<2;c++){const dt=b.getChannelData(c);for(let i=0;i<l;i++)dt[i]=(Math.random()*2-1)*Math.pow(1-i/l,dc);}return b;}
+function startAudio(){
+  if(A)return;
+  try{A=new(window.AudioContext||window.webkitAudioContext)();if(A.state==='suspended')A.resume();}catch(e){return;}
+  const t=A.currentTime+.2;
+  const rev=A.createConvolver();rev.buffer=mkI(13,1.1);
+  const rvg=A.createGain();rvg.gain.value=.82;rev.connect(rvg);rvg.connect(A.destination);
+  const lp=A.createBiquadFilter();lp.type='lowpass';lp.frequency.value=1900;lp.Q.value=0.4;lp.connect(rev);
+  [[82.41,0,.026],[123.47,.3,.020],[164.81,-.3,.016]].forEach(([f,det,vol])=>{
+    const o=A.createOscillator(),g=A.createGain();o.type='sine';o.frequency.value=f+det;
+    o.connect(g);g.connect(lp);g.connect(rvg);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+7);g.gain.setValueAtTime(vol,t+9999);o.start(t);
+    const lfo=A.createOscillator(),lg=A.createGain();lfo.type='sine';lfo.frequency.value=.18+Math.random()*.06;lg.gain.value=vol*.12;lfo.connect(lg);lg.connect(g.gain);lfo.start(t);
+  });
+  const fa=A.createOscillator(),fg=A.createGain();fa.type='sine';fa.frequency.value=110;fa.connect(fg);fg.connect(lp);fg.gain.setValueAtTime(0,t);fg.gain.linearRampToValueAtTime(.010,t+10);fg.gain.setValueAtTime(.010,t+9999);fa.start(t);
+  const mel=[[329.63,.018],[293.66,.015],[261.63,.013],[246.94,.012],[220.00,.010]];
+  let musicOn=true;
+  function playMel(s){
+    if(!musicOn)return;let nt=s;
+    mel.forEach(([f,vol])=>{
+      const o=A.createOscillator(),g=A.createGain();o.type='sine';o.frequency.value=f;
+      o.connect(g);g.connect(rev);g.connect(A.destination);
+      g.gain.setValueAtTime(0,nt);g.gain.linearRampToValueAtTime(vol,nt+.12);g.gain.exponentialRampToValueAtTime(.001,nt+7);
+      o.start(nt);o.stop(nt+7.5);nt+=2.2;
+    });
+    setTimeout(()=>playMel(A.currentTime+.05),(mel.length*2.2+8)*1000);
+  }
+  setTimeout(()=>playMel(A.currentTime+.05),4000);
+}
+
+/* Boot — single tap to start */
+document.getElementById('load').addEventListener('click', e=>{
+  e.stopPropagation();
+  startAudio();
+  vva.src=VIDS[0]; vva.muted=true; vva.load(); vva.play().catch(()=>{});
+  va.classList.add('on');
+  document.getElementById('load').classList.add('out');
+  timer = setTimeout(next, DUR);
+});
+</script>
+</body>
+</html>
