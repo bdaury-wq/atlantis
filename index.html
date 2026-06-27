@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>ATLANTIS · New York</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+#stage{position:fixed;inset:0}
+.vclip{position:absolute;inset:0;opacity:0;transition:opacity 0.9s ease;will-change:opacity}
+.vclip.on{opacity:1}
+.vclip video{width:100%;height:100%;object-fit:cover;display:block}
+#load{position:fixed;inset:0;z-index:10;background:#000;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:opacity 1s}
+#load.out{opacity:0;pointer-events:none}
+#dot{width:8px;height:8px;border-radius:50%;background:rgba(127,236,224,.65);
+  animation:p 2.2s ease-in-out infinite}
+@keyframes p{0%,100%{transform:scale(1);opacity:.45}50%{transform:scale(1.7);opacity:1}}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="load"><div id="dot"></div></div>
+<script>
+const VIDS=[
+  '08-nyc-eye-2K.mp4',
+  '01-nyc-flooding-2K.mp4',
+  '02-flooded-shore-2K.mp4',
+  '09-lions-door-2K.mp4',
+  '06-madison-sq-2K.mp4',
+  '03-times-square-2K.mp4',
+  '10-apartment-2K.mp4',
+  '07-times-square-aerial-2K.mp4',
+  '04-subway-2K.mp4',
+  '05-central-park-2K.mp4',
+  '03-deep-2K.mp4'
+];
+const DUR=9000; /* ms per clip */
+
+/* ── Build one <video> element per clip, all in DOM, all preloading ── */
+const stage=document.getElementById('stage');
+const clips=VIDS.map((src,i)=>{
+  const wrap=document.createElement('div');
+  wrap.className='vclip';
+  const v=document.createElement('video');
+  v.src=src;v.muted=true;v.loop=true;v.playsInline=true;v.preload='auto';
+  v.setAttribute('playsinline','');
+  wrap.appendChild(v);stage.appendChild(wrap);
+  return{wrap,v};
+});
+
+let cur=0,timer=null;
+
+function show(i){
+  clips[cur].wrap.classList.remove('on');
+  cur=i;
+  clips[cur].v.play().catch(()=>{});
+  clips[cur].wrap.classList.add('on');
+  /* Ensure next is buffered */
+  const nxt=(i+1)%clips.length;
+  clips[nxt].v.load();
+}
+
+function advance(){
+  show((cur+1)%clips.length);
+  clearTimeout(timer);timer=setTimeout(advance,DUR);
+}
+
+/* ── Audio ── */
+let A=null;
+function mkI(d,dc){const r=A.sampleRate,l=r*d,b=A.createBuffer(2,l,r);for(let c=0;c<2;c++){const dt=b.getChannelData(c);for(let i=0;i<l;i++)dt[i]=(Math.random()*2-1)*Math.pow(1-i/l,dc);}return b;}
+function startAudio(){
+  if(A)return;
+  try{A=new(window.AudioContext||window.webkitAudioContext)();if(A.state==='suspended')A.resume();}catch(e){return;}
+  const t=A.currentTime+.2;
+  const rev=A.createConvolver();rev.buffer=mkI(13,1.1);
+  const rvg=A.createGain();rvg.gain.value=.82;rev.connect(rvg);rvg.connect(A.destination);
+  const lp=A.createBiquadFilter();lp.type='lowpass';lp.frequency.value=1900;lp.Q.value=0.4;lp.connect(rev);
+  [[82.41,0,.026],[123.47,.3,.020],[164.81,-.3,.016]].forEach(([f,det,vol])=>{
+    const o=A.createOscillator(),g=A.createGain();o.type='sine';o.frequency.value=f+det;
+    o.connect(g);g.connect(lp);g.connect(rvg);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+7);
+    g.gain.setValueAtTime(vol,t+9999);o.start(t);
+    const lfo=A.createOscillator(),lg=A.createGain();
+    lfo.type='sine';lfo.frequency.value=.18+Math.random()*.06;lg.gain.value=vol*.12;
+    lfo.connect(lg);lg.connect(g.gain);lfo.start(t);
+  });
+  const fa=A.createOscillator(),fg=A.createGain();
+  fa.type='sine';fa.frequency.value=110;fa.connect(fg);fg.connect(lp);
+  fg.gain.setValueAtTime(0,t);fg.gain.linearRampToValueAtTime(.010,t+10);
+  fg.gain.setValueAtTime(.010,t+9999);fa.start(t);
+  const mel=[[329.63,.018],[293.66,.015],[261.63,.013],[246.94,.012],[220.00,.010]];
+  let on=true;
+  function playMel(s){
+    if(!on)return;let nt=s;
+    mel.forEach(([f,vol])=>{
+      const o=A.createOscillator(),g=A.createGain();o.type='sine';o.frequency.value=f;
+      o.connect(g);g.connect(rev);g.connect(A.destination);
+      g.gain.setValueAtTime(0,nt);g.gain.linearRampToValueAtTime(vol,nt+.12);
+      g.gain.exponentialRampToValueAtTime(.001,nt+7);
+      o.start(nt);o.stop(nt+7.5);nt+=2.2;
+    });
+    setTimeout(()=>playMel(A.currentTime+.05),(mel.length*2.2+8)*1000);
+  }
+  setTimeout(()=>playMel(A.currentTime+.05),4000);
+}
+
+/* ── Boot ── */
+document.getElementById('load').addEventListener('click',e=>{
+  e.stopPropagation();
+  startAudio();
+  /* Play first clip */
+  clips[0].v.play().catch(()=>{});
+  clips[0].wrap.classList.add('on');
+  /* Preload next two */
+  clips[1].v.load();clips[2].v.load();
+  /* Hide load screen */
+  const ld=document.getElementById('load');
+  ld.classList.add('out');
+  setTimeout(()=>ld.remove(),1200);
+  /* Start cycle */
+  timer=setTimeout(advance,DUR);
+});
+</script>
+</body>
+</html>
